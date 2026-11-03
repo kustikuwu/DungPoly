@@ -1,0 +1,134 @@
+syntax = 'proto3';
+package Monopoly.Serialization.Pb;
+//==================
+// Request data
+//==================
+
+enum Token {
+    FREE_FIELD = 0;
+    DOG = 1;
+    HAT = 2;
+    BOOT = 3;
+    CAT = 4;
+    CAR = 5;
+    SHIP = 6;
+    UNSPECIFIED_tok = 16;
+}
+
+enum RequestType {
+    ACTION = 0;
+    TRADE = 1;
+    MESSAGE = 2;
+    NUM = 3;
+    SUM = 4;
+    TOKEN = 5;
+}
+
+enum PlayerAction {
+    END_TURN = 0;
+    PAY_TAX = 1;
+    BUY_PROPERTY = 2;
+    BUY_BUILDING = 3;
+    BUY_HOTEL = 4;
+    USE_CARD = 5;
+    PAY_TO_OTHER_PLAYER = 6;
+    TAKE_CARD = 7;
+    MORTGAGE_HOLDINGS = 8;
+    START_TRADE = 9;
+    START_TRADE_NEW_FIELD = 10;
+    ROLL_DICE = 11;
+}
+
+enum MessageType {
+    INFO = 0;
+    CHANCE = 1;
+    PUBLIC_TREASURY = 2;
+    DICE = 3;
+}
+
+enum PlayerTradeAction {
+    REFUSE = 0;
+    PARTICIPATE = 1;
+}
+
+enum Color {
+    COL1 = 0;
+    COL2 = 1;
+    COL3 = 2;
+    COL4 = 3;
+    COL5 = 4;
+    COL6 = 5;
+    COL7 = 6;
+    COL8 = 7;
+    UNSPECIFIED_col = 16;
+}
+
+message PlayerRequest {
+    RequestType type = 1;
+    Token player = 2;
+    string msg = 3;
+    repeated PlayerAction availableActions = 4;
+    MessageType msgtype = 5;
+}
+
+message PlayerReply {
+    RequestType type = 1;
+    Token player = 2;
+    PlayerAction action = 3;
+    uint32 num = 4;
+    int32 sum = 5;
+    Token token = 6;
+    PlayerTradeAction trade = 7;
+}
+
+message InitializationMessage {
+    Token token = 1;
+    string name = 2;
+}
+
+//==================
+// Board
+//==================
+
+message Taxes {
+    uint32 startTax = 1;
+    uint32 taxOneHouse = 2;
+    uint32 taxTwoHouses = 3;
+    uint32 taxThreeHouses = 4;
+    uint32 taxFourHouses = 5;
+    uint32 taxHotel = 6;
+}
+
+message FieldTileModel {
+    int32 position = 1;
+    string name = 2;
+    int32 tax = 3;
+    int32 cost = 4;
+    int32 costOfParking = 5;
+    Color color = 6;
+    Token owner = 7;
+    int32 numberOfHouses = 8;
+    int32 costPerHouse = 9;
+    int32 costPerHotel = 10;
+    Taxes taxes = 11;
+}
+
+message Card {
+    //TODO: Subclasses
+    string text = 1;
+}
+
+message PlayerData {
+    string name = 1;
+    Token token = 2;
+    uint32 position = 3;
+    uint32 money = 4; //TODO: a lot of money (64-bit??)? Negative money?
+    bool prisoner = 5;
+    bool alive = 6;
+}
+
+message BoardModel {
+    repeated FieldTileModel tiles = 1;
+    repeated PlayerData players = 3;
+    Token curPlayer = 4;
+}

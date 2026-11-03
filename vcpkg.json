@@ -1,0 +1,23 @@
+{
+  "name": "hse-proj-monopoly",
+  "version-string": "1.0.0",
+  "builtin-baseline": "1460b31b08c42cc2e9ac2c79f45ec8707e2675e2",
+  "dependencies": [
+    "protobuf",
+    {
+      "name": "sfml",
+      "default-features": false,
+      "features": ["graphics"]
+    }
+  ],
+  "overrides": [
+    {
+      "name": "protobuf",
+      "version-string": "3.11.4"
+    },
+    {
+      "name": "sfml",
+      "version": "2.6.2"
+    }
+  ]
+}
