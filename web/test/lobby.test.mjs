@@ -671,6 +671,14 @@ test("registration and lobby names reject profanity, malformed email, and duplic
   });
   assert.equal(bannedUsername.status, 400);
 
+  for (const username of ["NaziPropaganda", "RacismClub", "СексуальноеНасилие", "ТорговляДетьми"]) {
+    const response = await request("/api/auth/register", {
+      method: "POST",
+      body: { username, email: `${username}@example.test` }
+    });
+    assert.equal(response.status, 400, `${username} should be rejected`);
+  }
+
   const mixedScriptUsername = await request("/api/auth/register", {
     method: "POST",
     body: { username: "СyкаИгрок", email: "mixed-script@example.test" }
@@ -696,4 +704,13 @@ test("registration and lobby names reject profanity, malformed email, and duplic
     body: { name: "Комната Сyки", maxPlayers: 4 }
   });
   assert.equal(bannedRussianRoom.status, 400);
+
+  for (const name of ["Комната для травли", "Terrorist Propaganda", "Незаконные азартные игры"]) {
+    const response = await request("/api/lobbies", {
+      method: "POST",
+      cookie: ownerCookie,
+      body: { name, maxPlayers: 4 }
+    });
+    assert.equal(response.status, 400, `${name} should be rejected`);
+  }
 });
