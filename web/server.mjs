@@ -460,10 +460,10 @@ export function createAppServer({
     const candidates = [
       process.env.DUNGPOLY_ENGINE_PATH,
       join(WEB_ROOT, "bin", executable),
-      join(WEB_ROOT, "..", "build", "win-msvc", "web-engine", "Debug", executable),
       join(WEB_ROOT, "..", "build", "win-msvc", "web-engine", "Release", executable),
-      join(WEB_ROOT, "..", "build", "web-engine", "Debug", executable),
-      join(WEB_ROOT, "..", "build", "web-engine", "Release", executable)
+      join(WEB_ROOT, "..", "build", "win-msvc", "web-engine", "Debug", executable),
+      join(WEB_ROOT, "..", "build", "web-engine", "Release", executable),
+      join(WEB_ROOT, "..", "build", "web-engine", "Debug", executable)
     ].filter(Boolean);
     return candidates.find((candidate) => existsSync(candidate));
   }
@@ -499,6 +499,7 @@ export function createAppServer({
       tokenToUser,
       state: null,
       pending: null,
+      replyPending: false,
       closed: false,
       done: false
     };
@@ -533,9 +534,10 @@ export function createAppServer({
           return;
         }
         session.pending = { ...payload, userId };
+        session.replyPending = false;
         for (const socket of roomSockets.get(lobby.id) ?? []) {
           if (socket.userId === userId) {
-            sendSocket(socket, { type: "request", request: payload });
+            sendSocket(socket, { type: "request", request: payload, replyPending: false });
           } else {
             const player = lobby.players.find((entry) => entry.userId === userId);
             sendSocket(socket, { type: "waiting", player: player?.username ?? "Игрок" });
@@ -544,10 +546,19 @@ export function createAppServer({
       } else if (kind === "MESSAGE") {
         broadcastRoom(lobby.id, { type: "notification", message: payload.message, messageType: payload.messageType });
       } else if (kind === "REPLY_ERROR") {
-        broadcastRoom(lobby.id, { type: "game_error", message: payload });
+        session.replyPending = false;
+        if (session.pending) {
+          const { userId, ...request } = session.pending;
+          for (const socket of roomSockets.get(lobby.id) ?? []) {
+            if (socket.userId === userId) {
+              sendSocket(socket, { type: "reply_error", message: payload, request });
+            }
+          }
+        }
       } else if (kind === "DONE") {
         session.done = true;
         session.pending = null;
+        session.replyPending = false;
         lobby.gameStatus = "finished";
         saveStore(dataFile, store);
         notifyLobby(lobby);
@@ -635,7 +646,12 @@ export function createAppServer({
       return;
     }
 
-    session.pending = null;
+    if (session.replyPending) {
+      sendSocket(socket, { type: "error", message: "Ответ уже обрабатывается." });
+      return;
+    }
+
+    session.replyPending = true;
     session.child.stdin.write(`REPLY\t${pending.id}\t${replyType}\t${value}\n`);
   }
 
@@ -988,7 +1004,11 @@ export function createAppServer({
         if (session?.pending) {
           if (session.pending.userId === user.id) {
             const { userId: _userId, ...publicRequest } = session.pending;
-            sendSocket(websocket, { type: "request", request: publicRequest });
+            sendSocket(websocket, {
+              type: "request",
+              request: publicRequest,
+              replyPending: session.replyPending
+            });
           } else {
             const currentPlayer = lobby.players.find((player) => player.userId === session.pending.userId);
             sendSocket(websocket, { type: "waiting", player: currentPlayer?.username ?? "Игрок" });

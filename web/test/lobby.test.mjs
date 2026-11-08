@@ -16,6 +16,7 @@ let dataDirectory;
 let persistentSessionCookie;
 const emailCodes = new Map();
 const registeredEmails = new Map();
+const registeredCookies = new Map();
 let emailSequence = 0;
 
 function createTestServer(dataFile) {
@@ -76,6 +77,7 @@ async function register(username) {
   });
   assert.equal(response.status, 200, JSON.stringify(response.payload));
   registeredEmails.set(username, email);
+  registeredCookies.set(username, response.cookie);
   return response.cookie;
 }
 
@@ -259,6 +261,17 @@ test("authenticated players can create and join a lobby; capacity and ownership 
   assert.match(gameSource, /tileIllustration/);
   assert.match(gameSource, /"Сдаться"/);
   assert.doesNotMatch(gameSource, /Завершить партию/);
+  const actionImages = [...gameSource.matchAll(/"([A-Z][A-Z_]*\.png)"/g)]
+    .map(([, image]) => image);
+  const publicResources = fileURLToPath(new URL("../public/resources/", import.meta.url));
+  assert.ok(actionImages.length > 0);
+  assert.ok(actionImages.every((image) => existsSync(join(publicResources, image))));
+  const servedActionImages = await Promise.all([...new Set(actionImages)].map((image) =>
+    fetch(`${baseUrl}/resources/${image}`)
+  ));
+  assert.ok(servedActionImages.every((response) =>
+    response.status === 200 && response.headers.get("content-type") === "image/png"
+  ));
   const tileArtSource = gameSource.slice(gameSource.indexOf("const TILE_GLYPHS ="), gameSource.indexOf("const ACTIONS ="));
   const { TILE_ART, TILE_GLYPHS } = runInNewContext(`${tileArtSource}; ({ TILE_ART, TILE_GLYPHS });`);
   assert.equal(TILE_ART.length, 40);
@@ -348,6 +361,15 @@ test("the lobby starts a C++ game and routes a turn only to the active player", 
     }));
     const deniedReply = await guestConnection.events.waitFor((message) => message.type === "error");
     assert.match(deniedReply.message, /нельзя отправить/);
+
+    ownerConnection.socket.send(JSON.stringify({
+      type: "reply",
+      requestId: turn.request.id,
+      replyType: "ACTION",
+      value: "NOT_AN_ACTION"
+    }));
+    const invalidReply = await ownerConnection.events.waitFor((message) => message.type === "error");
+    assert.match(invalidReply.message, /не соответствует/);
 
     ownerConnection.socket.send(JSON.stringify({
       type: "reply",
@@ -712,5 +734,159 @@ test("registration and lobby names reject profanity, malformed email, and duplic
       body: { name, maxPlayers: 4 }
     });
     assert.equal(response.status, 400, `${name} should be rejected`);
+  }
+});
+
+test("three players finish a match after an auction leaves a property owner at zero balance", { timeout: 30000 }, async () => {
+  const users = ["ВладелецПартии", "ВторойИгрок", "СдающийсяИгрок"]
+    .map((username) => registeredCookies.get(username));
+  assert.ok(users.every(Boolean), "the integration test accounts should already exist");
+  const created = await request("/api/lobbies", {
+    method: "POST",
+    cookie: users[0],
+    body: { name: "Офлайн-проверка аукциона", maxPlayers: 3 }
+  });
+  const lobbyId = created.payload.lobby.id;
+  for (const cookie of users.slice(1)) {
+    const joined = await request(`/api/lobbies/${lobbyId}/join`, {
+      method: "POST",
+      cookie,
+      body: {}
+    });
+    assert.equal(joined.status, 200);
+  }
+
+  const connections = await Promise.all(users.map((cookie) => connectToGame(cookie, lobbyId)));
+  let state;
+  let rolls = 0;
+  let auctions = 0;
+  let zeroBalancePropertyOwner = false;
+  let zeroBalancePlayerTookAnotherTurn = false;
+  let forceAuction = true;
+  let activeAuction = false;
+  let bidPlaced = false;
+  let timeoutId;
+  let resolveGame;
+  let rejectGame;
+  const finished = new Promise((resolve, reject) => {
+    resolveGame = resolve;
+    rejectGame = reject;
+  });
+  const respond = (socket, gameRequest, replyType, value) => {
+    socket.send(JSON.stringify({
+      type: "reply",
+      requestId: gameRequest.id,
+      replyType,
+      value: String(value)
+    }));
+  };
+
+  for (const { socket } of connections) {
+    socket.on("message", (data) => {
+      const event = JSON.parse(data.toString());
+      if (event.type === "state") {
+        state = event.state;
+        const bidder = state.players.find((player) => player.token === 2);
+        zeroBalancePropertyOwner ||= bidder.money === 0 && bidder.alive &&
+          state.tiles.some((tile) => tile.owner === bidder.token);
+        if (zeroBalancePropertyOwner) activeAuction = false;
+      } else if (event.type === "game_error") {
+        rejectGame(new Error(event.message));
+      } else if (event.type === "game_over") {
+        resolveGame(event.state);
+      }
+    });
+  }
+
+  const respondToRequest = (socket, gameRequest) => {
+    const player = state?.players.find((entry) => entry.token === gameRequest.playerToken);
+    if (gameRequest.type === "ACTION") {
+      const actions = gameRequest.actions;
+      let action;
+      if (rolls >= 40 && player.token !== 1 && actions.includes("EXIT_GAME")) {
+        action = "EXIT_GAME";
+      } else if (actions.includes("ROLL_DICE")) {
+        if (player.token === 2 && zeroBalancePropertyOwner && player.money === 0) {
+          zeroBalancePlayerTookAnotherTurn = true;
+        }
+        rolls += 1;
+        action = "ROLL_DICE";
+      } else if (actions.includes("BUY_FIELD") && forceAuction) {
+        forceAuction = false;
+        activeAuction = true;
+        auctions += 1;
+        action = "START_TRADE_NEW_FIELD";
+      } else if (actions.includes("BUY_FIELD") && player.money >= state.tiles[player.position].cost) {
+        action = "BUY_FIELD";
+      } else if (
+        (/недостаточно/i.test(gameRequest.message ?? "") ||
+          (actions.includes("PAY_TAX") && player.money === 0)) &&
+        actions.includes("MORTGAGE_HOLDINGS")
+      ) {
+        action = "MORTGAGE_HOLDINGS";
+      } else if (actions.includes("PAY_TO_OTHER_PLAYER") && player.money > 0) {
+        action = "PAY_TO_OTHER_PLAYER";
+      } else if (actions.includes("PAY_TAX") && player.money > 0) {
+        action = "PAY_TAX";
+      } else if (actions.includes("END_TURN")) {
+        action = "END_TURN";
+      } else if (actions.includes("EXIT_GAME")) {
+        action = "EXIT_GAME";
+      } else if (actions.includes("START_TRADE_NEW_FIELD")) {
+        action = "START_TRADE_NEW_FIELD";
+      } else if (actions.includes("TAKE_CARD")) {
+        action = "TAKE_CARD";
+      } else {
+        action = actions[0];
+      }
+      respond(socket, gameRequest, "ACTION", action);
+    } else if (gameRequest.type === "TRADE") {
+      const shouldBid = activeAuction && gameRequest.playerToken === 2 && !bidPlaced;
+      respond(socket, gameRequest, "TRADE", shouldBid ? "PARTICIPATE" : "REFUSE");
+    } else if (gameRequest.type === "SUM") {
+      bidPlaced = true;
+      respond(socket, gameRequest, "SUM", player.money);
+    } else if (gameRequest.type === "NUM") {
+      const ownUnbuiltTile = state.tiles.find((tile) =>
+        tile.owner === player.token && !tile.mortgaged &&
+        !(tile.houses ?? 0) && !(tile.hotels ?? 0)
+      );
+      respond(socket, gameRequest, "NUM", ownUnbuiltTile?.position ?? 0);
+    } else if (gameRequest.type === "TOKEN") {
+      respond(socket, gameRequest, "TOKEN", gameRequest.playerToken === 1 ? 2 : 1);
+    }
+  };
+  for (const { socket, events } of connections) {
+    socket.on("message", (data) => {
+      const event = JSON.parse(data.toString());
+      if (event.type === "request") respondToRequest(socket, event.request);
+    });
+    await events.waitFor((event) => event.type === "lobby");
+  }
+
+  try {
+    const started = await request(`/api/lobbies/${lobbyId}/start`, {
+      method: "POST",
+      cookie: users[0],
+      body: {}
+    });
+    assert.equal(started.status, 202);
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("offline match timed out")), 25000);
+    });
+    const finalState = await Promise.race([finished, timeout]);
+    clearTimeout(timeoutId);
+    assert.equal(auctions, 1);
+    assert.equal(zeroBalancePropertyOwner, true);
+    assert.equal(zeroBalancePlayerTookAnotherTurn, true);
+    assert.equal(finalState.players.filter((player) => player.alive).length, 1);
+    assert.ok(finalState.players.find((player) => player.alive));
+  } finally {
+    clearTimeout(timeoutId);
+    await request(`/api/lobbies/${lobbyId}`, {
+      method: "DELETE",
+      cookie: users[0]
+    });
+    for (const { socket } of connections) socket.close();
   }
 });

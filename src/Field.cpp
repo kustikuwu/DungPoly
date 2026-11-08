@@ -779,100 +779,61 @@ void OwnableTile::onPlayerEntry(Token token) {
             continue;
         }
         if (action == PlayerAction::START_TRADE_NEW_FIELD) {
-            //TODO
-            int numOfParticipants = board.getCurNumOfPlayers() - 1;
-            std::vector<bool> participants(board.getPlayersNumber(), true);
             int curPlayerNum = board.getPlayerNum(token);
             board.setPlayerIndex(curPlayerNum);
-            participants[curPlayerNum] = false;
-            int curCost = cost;
+            std::vector<bool> participants(board.getPlayersNumber(), true);
+            uint32_t curCost = 0;
             int curBuyer = -1;
-            while (numOfParticipants > 1) {
-                if (!participants[curPlayerNum]) {
-                    curPlayerNum = (curPlayerNum + 1) % board.getPlayersNumber();
-                    board.setPlayerIndex(curPlayerNum);
-                    continue;
-                }
-                PlayerData& curPlayer = board.getPlayer(board.getPlayerToken(curPlayerNum));
-                if (!curPlayer.alive) {
-                    curPlayerNum = (curPlayerNum + 1) % board.getPlayersNumber();
-                    board.setPlayerIndex(curPlayerNum);
-                    continue;
-                }
-                if (curCost > curPlayer.getMoney()) {
-                    participants[curPlayerNum] = false;
-                    numOfParticipants--;
-                    curPlayerNum = (curPlayerNum + 1) % board.getPlayersNumber();
-                    board.setPlayerIndex(curPlayerNum);
-                    continue;
-                }
-                board.send(message(curPlayer.token, MessageType::INFO,
-                                   "Аукцион: " + this->name + "\nТекущая цена: "
-                                   + std::to_string(curCost) + "\nТекущий покупатель: " +
-                                   board.numToTokenString(curBuyer)));
-                PlayerTradeAction tradeReply = board.send(trade(curPlayer.token))->data.trade;
-                if (tradeReply == PlayerTradeAction::REFUSE) {
-                    participants[curPlayerNum] = false;
-                    numOfParticipants--;
-                }
-                if (tradeReply == PlayerTradeAction::PARTICIPATE) {
-                    int sumReply = board.send(sum(curPlayer.token))->data.sum;
-                    if (curPlayer.getMoney() <= sumReply) {
-                        board.send(message(curPlayer.token, MessageType::INFO, "Недостаточно денег"));
-                    } else if (curCost < sumReply) {
-                        curBuyer = curPlayerNum;
-                        curCost = sumReply;
-                    }
-                }
-                curPlayerNum = (curPlayerNum + 1) % board.getPlayersNumber();
-                board.setPlayerIndex(curPlayerNum);
-            }
-            while (true) {
-                PlayerData& curPlayer = board.getPlayer(board.getPlayerToken(curPlayerNum));
-                if (!curPlayer.alive || !participants[curPlayerNum]) {
-                    curPlayerNum = (curPlayerNum + 1) % board.getPlayersNumber();
-                    board.setPlayerIndex(curPlayerNum);
-                } else {
-                    break;
-                }
-            }
-            PlayerData& curPlayer = board.getPlayer(board.getPlayerToken(curPlayerNum));
-            if (curBuyer == curPlayerNum) {
-                if (curPlayer.money >= curCost) {
-                    curPlayer.money -= curCost;
-                    onPurchase(curPlayer.token);
-                    buyProperty = true;
-                    owner = curPlayer.token;
-                    costOfParking = calculateTax(curPlayer.token);
-                    continue;
-                } else {
-                    board.send(message(curPlayer.token, MessageType::INFO, "Недостаточно денег :("));
-                    curPlayer.setLoser();
-                    board.makePlayerLoser(curPlayer.token);
-                }
-            } else {
-                board.send(message(curPlayer.token, MessageType::INFO,
-                                   "Аукцион: " + this->name + "\nТекущая цена: "
-                                   + std::to_string(curCost) + "\nТекущий покупатель: " +
-                                   board.numToTokenString(curBuyer)));
-                PlayerTradeAction tradeReply = board.send(trade(curPlayer.token))->data.trade;
-                if (tradeReply == PlayerTradeAction::PARTICIPATE) {
-                    if (curPlayer.money >= cost) {
-                        curPlayer.money -= cost;
-                        onPurchase(curPlayer.token);
-                        buyProperty = true;
-                        owner = curPlayer.token;
-                        costOfParking = calculateTax(curPlayer.token);
+            bool newBid = true;
+            while (newBid) {
+                newBid = false;
+                for (std::size_t index = 0; index < board.getPlayersNumber(); ++index) {
+                    if (!participants[index]) {
                         continue;
+                    }
+                    PlayerData& curPlayer = board.getPlayer(board.getPlayerToken(index));
+                    if (!curPlayer.alive || curPlayer.getMoney() <= static_cast<int>(curCost)) {
+                        participants[index] = false;
+                        continue;
+                    }
+                    board.setPlayerIndex(index);
+                    const std::string buyerName = curBuyer < 0
+                        ? "нет"
+                        : board.numToTokenString(curBuyer);
+                    board.send(message(curPlayer.token, MessageType::INFO,
+                                       "Аукцион: " + this->name + "\nТекущая цена: "
+                                       + std::to_string(curCost) + "\nТекущий покупатель: " + buyerName));
+                    if (board.send(trade(curPlayer.token))->data.trade == PlayerTradeAction::REFUSE) {
+                        participants[index] = false;
+                        continue;
+                    }
+
+                    const int sumReply = board.send(sum(curPlayer.token))->data.sum;
+                    if (sumReply > static_cast<int>(curCost) && sumReply <= curPlayer.getMoney()) {
+                        curBuyer = static_cast<int>(index);
+                        curCost = static_cast<uint32_t>(sumReply);
+                        newBid = true;
                     } else {
-                        board.send(message(curPlayer.token, MessageType::INFO, "Недостаточно денег :("));
-                        curPlayer.setLoser();
-                        board.makePlayerLoser(curPlayer.token);
+                        participants[index] = false;
+                        board.send(message(curPlayer.token, MessageType::INFO,
+                                           "Ставка должна быть выше текущей и не превышать ваш баланс."));
                     }
                 }
+            }
+            if (curBuyer >= 0) {
+                PlayerData& winner = board.getPlayer(
+                    board.getPlayerToken(static_cast<std::size_t>(curBuyer)));
+                winner.money -= curCost;
+                onPurchase(winner.token);
+                owner = winner.token;
+                costOfParking = calculateTax(winner.token);
+            } else {
+                board.send(message(player.token, MessageType::INFO,
+                                   "Аукцион завершён без ставок; собственность осталась свободной."));
             }
             buyProperty = true;
-            board.setPlayerIndex(board.getPlayerNum(token));
+            board.setPlayerIndex(static_cast<std::size_t>(board.getPlayerNum(token)));
+            continue;
         }
         if (!handleGenericActions(token, *this, action)) {
             return;

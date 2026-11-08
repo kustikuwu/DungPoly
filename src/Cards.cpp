@@ -108,7 +108,13 @@ void PayMoneyToOtherPlayers::apply(Token token) {
     FieldTile *curField = board.getTile(player.position);
     bool payTax = false;
     int tmp = amount;
-    amount = board.getCurNumOfPlayers() * tmp;
+    int recipientCount = 0;
+    for (const PlayerData& recipient : board.getPlayers()) {
+        if (recipient.alive && recipient.token != token) {
+            ++recipientCount;
+        }
+    }
+    amount = recipientCount * tmp;
     PlayerRequest request = makeDefaultRequest(token, board);
     request->availableActions.push_back(PlayerAction::PAY_TAX);
     while (true) {

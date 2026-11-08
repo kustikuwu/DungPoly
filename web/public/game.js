@@ -67,7 +67,7 @@ const ACTIONS = [
   ["START_TRADE_NEW_FIELD", "Начать аукцион", "START_TRADE_NEW_FIELD.png", "ОБМЕН И КАРТЫ"],
   ["TAKE_CARD", "Взять карточку", "TAKE_CARD.png", "ОБМЕН И КАРТЫ"],
   ["USE_CARD", "Использовать карточку", "USE_CARD.png", "ОБМЕН И КАРТЫ"],
-  ["EXIT_GAME", "Сдаться", "FINISH_GAME.png", "ИГРА"]
+  ["EXIT_GAME", "Сдаться", "EXIT_GAME.png", "ИГРА"]
 ].map(([id, label, icon, group]) => ({ id, label, icon, group }));
 const ACTION_BY_ID = new Map(ACTIONS.map((action) => [action.id, action]));
 const ROOM_ID = window.location.pathname.match(/^\/lobby\/([A-F0-9]{8})$/)?.[1];
@@ -88,6 +88,7 @@ let selectedTile = null;
 let pendingTile;
 let lastEvent = "Подключение к игровой комнате";
 let currentUsername = "";
+let replyPending = false;
 
 function showError(message) {
   roomError.textContent = message;
@@ -363,7 +364,8 @@ function renderPropertyActions(tile) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "property-action";
-    button.disabled = !canUseSelectedTile() || !currentRequest.actions.includes(action.id);
+    button.disabled = replyPending || !canUseSelectedTile() ||
+      !currentRequest?.actions.includes(action.id);
     const icon = document.createElement("img");
     icon.src = assetUrl(action.icon);
     icon.alt = "";
@@ -385,7 +387,8 @@ function renderActionPanel() {
   const request = currentRequest;
   const ownTurn = Boolean(request && request.playerToken === gameState?.currentPlayer);
   document.querySelector("#action-status").textContent = request
-    ? ownTurn ? request.message || "Выберите действие" : request.message || "Выполняется действие"
+    ? replyPending ? "Обрабатываем ответ..." :
+      ownTurn ? request.message || "Выберите действие" : request.message || "Выполняется действие"
     : gameState ? "Ожидание хода" : "Ожидание партии";
 
   if (request?.type === "ACTION") {
@@ -404,6 +407,7 @@ function renderActionPanel() {
       if (action.id === "ROLL_DICE") button.classList.add("action-button-primary");
       button.title = action.label;
       button.setAttribute("aria-label", action.label);
+      button.disabled = replyPending;
       const image = document.createElement("img");
       image.src = assetUrl(action.icon);
       image.alt = "";
@@ -418,12 +422,15 @@ function renderActionPanel() {
   } else if (request?.type === "SUM") {
     hint.textContent = request.message || "Введите сумму и подтвердите.";
     sumForm.hidden = false;
+    sumInput.disabled = replyPending;
+    sumForm.querySelector("button[type='submit']").disabled = replyPending;
     sumInput.focus();
   } else if (request?.type === "TOKEN") {
     hint.textContent = request.message || "Выберите игрока в центре поля.";
   } else if (request?.type === "TRADE") {
     hint.textContent = request.message || "Участвовать в обмене?";
     tradeControls.hidden = false;
+    tradeControls.querySelectorAll("button").forEach((button) => { button.disabled = replyPending; });
   } else if (gameState) {
     hint.textContent = "Сейчас ход другого игрока.";
   }
@@ -474,7 +481,7 @@ function renderGameState() {
 }
 
 function sendReply(replyType, value) {
-  if (!currentRequest || !socket || socket.readyState !== WebSocket.OPEN) {
+  if (!currentRequest || replyPending || !socket || socket.readyState !== WebSocket.OPEN) {
     showError("Нет активного игрового запроса. Подождите обновления состояния.");
     return;
   }
@@ -484,7 +491,7 @@ function sendReply(replyType, value) {
     replyType,
     value: String(value)
   }));
-  currentRequest = null;
+  replyPending = true;
   renderActionPanel();
 }
 
@@ -546,6 +553,7 @@ function handleGameEvent(event) {
     renderGameState();
   } else if (event.type === "request") {
     currentRequest = event.request;
+    replyPending = Boolean(event.replyPending);
     if (currentRequest.type === "NUM" && pendingTile !== undefined) {
       const position = pendingTile;
       pendingTile = undefined;
@@ -556,6 +564,7 @@ function handleGameEvent(event) {
     if (currentRequest.type === "ACTION") setConnectionStatus("Ваш ход");
   } else if (event.type === "waiting") {
     currentRequest = null;
+    replyPending = false;
     document.querySelector("#action-status").textContent = `Ход игрока ${event.player}`;
     document.querySelector("#turn-label").textContent = `ХОД ИГРОКА: ${event.player}`;
     setConnectionStatus(`Ход игрока ${event.player}`);
@@ -575,15 +584,24 @@ function handleGameEvent(event) {
   } else if (event.type === "game_over") {
     gameState = event.state ?? gameState;
     currentRequest = null;
+    replyPending = false;
     if (lobby) lobby.gameStatus = "finished";
     document.querySelector("#last-event").textContent = "Партия завершена";
     renderLobby();
     renderGameState();
-  } else if (event.type === "game_error" || event.type === "error") {
+  } else if (event.type === "reply_error") {
+    currentRequest = event.request;
+    replyPending = false;
+    showError(event.message);
+    renderActionPanel();
+  } else if (event.type === "game_error") {
     currentRequest = null;
+    replyPending = false;
     setConnectionStatus("Ошибка игровой сессии", "error");
     showError(event.message);
     renderActionPanel();
+  } else if (event.type === "error") {
+    showError(event.message);
   }
 }
 
