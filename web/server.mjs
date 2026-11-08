@@ -331,8 +331,9 @@ async function sendVerificationEmail(email, code) {
   }
   const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
+    port: 587,
+    secure: false,
+    requireTLS: true,
     connectionTimeout: 15000,
     greetingTimeout: 10000,
     socketTimeout: 20000,
