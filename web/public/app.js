@@ -22,6 +22,7 @@ const credentialsFields = document.querySelector("#credentials-fields");
 const verificationFields = document.querySelector("#verification-fields");
 const verificationMessage = document.querySelector("#verification-message");
 const usernameInput = document.querySelector("#username");
+const usernameLabel = document.querySelector("#username-label");
 const emailInput = document.querySelector("#email");
 const verificationCodeInput = document.querySelector("#verification-code");
 const accountBar = document.querySelector("#account-bar");
@@ -84,6 +85,7 @@ function setAuthMode(mode) {
     tab.setAttribute("aria-selected", String(active));
   }
   authTitle.textContent = isLogin ? "Войти в аккаунт" : "Создать аккаунт";
+  usernameLabel.hidden = isLogin;
   usernameInput.hidden = isLogin;
   usernameInput.required = isRegister;
   emailInput.required = true;
