@@ -4,10 +4,8 @@ import {
   randomBytes,
   randomInt,
   randomUUID,
-  scrypt as scryptCallback,
   timingSafeEqual
 } from "node:crypto";
-import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -19,18 +17,12 @@ import nodemailer from "nodemailer";
 import { WebSocket, WebSocketServer } from "ws";
 import { containsBannedName } from "./name-policy.mjs";
 
-const scrypt = promisify(scryptCallback);
 const SESSION_COOKIE = "dungpoly_session";
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const AUTH_CODE_TTL_MS = 10 * 60 * 1000;
 const AUTH_CODE_ATTEMPTS = 5;
 const MAX_BODY_BYTES = 16 * 1024;
-const PASSWORD_HASH_LENGTH = 64;
-const CURRENT_SCRYPT_OPTIONS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-const LEGACY_SCRYPT_OPTIONS = { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 };
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
-const LOGIN_ATTEMPTS_PER_ACCOUNT = 10;
-const LOGIN_ATTEMPTS_PER_IP = 30;
 const REGISTRATIONS_PER_IP = 10;
 const AUTH_REQUESTS_PER_IP = 60;
 const MAX_RATE_LIMIT_BUCKETS = 10000;
@@ -135,10 +127,6 @@ function hashSessionToken(token) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-function isValidPasswordHash(hash) {
-  return typeof hash === "string" && /^[\da-f]{128}$/i.test(hash);
-}
-
 async function readJson(request) {
   let body = "";
   for await (const chunk of request) {
@@ -212,24 +200,6 @@ function requireUser(request, store) {
     throw new HttpError(401, "Сессия завершена. Войдите снова.");
   }
   return { user, token, session };
-}
-
-async function createPasswordHash(password, salt, options = CURRENT_SCRYPT_OPTIONS) {
-  return Buffer.from(await scrypt(password, salt, PASSWORD_HASH_LENGTH, options)).toString("hex");
-}
-
-async function verifyPassword(user, password) {
-  const legacyHash = !user.passwordKdf;
-  const options = legacyHash ? LEGACY_SCRYPT_OPTIONS : CURRENT_SCRYPT_OPTIONS;
-  if (!isValidPasswordHash(user.passwordHash)) {
-    throw new Error(`Account ${user.id} has an invalid password hash`);
-  }
-  const supplied = Buffer.from(await createPasswordHash(password, user.passwordSalt, options), "hex");
-  const stored = Buffer.from(user.passwordHash, "hex");
-  return {
-    valid: timingSafeEqual(stored, supplied),
-    needsUpgrade: legacyHash
-  };
 }
 
 function pruneRateLimits(rateLimits, now) {
@@ -342,9 +312,43 @@ async function sendVerificationEmail(email, code) {
   try {
     await transporter.sendMail({
       from: { name: "DungPoly", address: from },
+      replyTo: from,
       to: email,
-      subject: "Код входа в DungPoly",
-      text: `Ваш код подтверждения DungPoly: ${code}\n\nКод действует 10 минут. Если вы не запрашивали его, просто проигнорируйте это письмо.`
+      subject: "Код подтверждения для входа в DungPoly",
+      text: [
+        "Здравствуйте!",
+        "",
+        "Ваш код подтверждения для входа в DungPoly:",
+        code,
+        "",
+        "Введите код на странице входа. Он действует 10 минут.",
+        "Если вы не запрашивали код, проигнорируйте это письмо. Никому не сообщайте код — сотрудники DungPoly никогда его не запрашивают.",
+        "",
+        "DungPoly"
+      ].join("\n"),
+      html: `<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:24px;background:#f3f5f7;font-family:Arial,sans-serif;color:#17212b">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:480px;background:#fff;border:1px solid #dfe5e9;border-radius:12px">
+        <tr><td style="padding:28px">
+          <p style="margin:0 0 20px;font-size:20px;font-weight:bold">DungPoly</p>
+          <p style="margin:0 0 12px;font-size:16px">Ваш код подтверждения для входа:</p>
+          <p style="margin:0 0 20px;padding:16px;background:#f3f5f7;border-radius:8px;text-align:center;font-size:30px;font-weight:bold;letter-spacing:8px">${code}</p>
+          <p style="margin:0 0 12px;font-size:14px;line-height:1.5">Введите код на странице входа. Он действует 10 минут.</p>
+          <p style="margin:0;color:#586572;font-size:13px;line-height:1.5">Если вы не запрашивали код, проигнорируйте это письмо. Никому не сообщайте код — сотрудники DungPoly никогда его не запрашивают.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
+      headers: {
+        "Auto-Submitted": "auto-generated",
+        "X-Auto-Response-Suppress": "All"
+      }
     });
   } catch (error) {
     console.error(
@@ -704,63 +708,7 @@ export function createAppServer({
           }
 
           if (pathname === "/api/auth/migrate") {
-            if (typeof body.username !== "string" || typeof body.password !== "string" ||
-                body.password.length < 1 || body.password.length > 128) {
-              throw new HttpError(400, "Укажите имя старого профиля и его пароль.");
-            }
-            const normalizedUsername = body.username.trim().normalize("NFKC").toLowerCase();
-            const ip = request.socket.remoteAddress ?? "unknown";
-            takeRateLimit(rateLimits, `login-ip:${ip}`, LOGIN_ATTEMPTS_PER_IP);
-            takeRateLimit(rateLimits, `login-user:${normalizedUsername}`, LOGIN_ATTEMPTS_PER_ACCOUNT);
-            const user = store.users.find((candidate) =>
-              (candidate.normalizedUsername ?? candidate.username.normalize("NFKC").toLowerCase()) === normalizedUsername
-            );
-            const hasPassword = Boolean(user?.passwordHash);
-            const hashRecord = hasPassword ? user : {
-              id: "unknown",
-              passwordSalt: "00000000000000000000000000000000",
-              passwordHash: Buffer.alloc(PASSWORD_HASH_LENGTH).toString("hex"),
-              passwordKdf: "scrypt-32768-8-1"
-            };
-            const verification = await verifyPassword(hashRecord, body.password);
-            if (!user) {
-              throw new HttpError(401, "Не удалось подтвердить старый профиль.");
-            }
-            if (!hasPassword) {
-              throw new HttpError(409, "Этот профиль уже перенесён. Войдите по почте.");
-            }
-            if (!verification.valid) {
-              throw new HttpError(401, "Не удалось подтвердить старый профиль.");
-            }
-            const newProfile = validateCredentials({
-              username: typeof body.profileName === "string" && body.profileName.trim()
-                ? body.profileName
-                : user.username,
-              email: body.email
-            });
-            if (store.users.some((candidate) =>
-              candidate.id !== user.id && candidate.normalizedEmail === newProfile.normalizedEmail
-            )) {
-              throw new HttpError(409, "Эта почта уже привязана к профилю.");
-            }
-            if (store.users.some((candidate) =>
-              candidate.id !== user.id &&
-              (candidate.normalizedUsername ?? candidate.username.normalize("NFKC").toLowerCase()) === newProfile.normalizedUsername
-            )) {
-              throw new HttpError(409, "Это имя пользователя уже занято.");
-            }
-            takeRateLimit(rateLimits, `auth-request-ip:${ip}`, AUTH_REQUESTS_PER_IP);
-            takeRateLimit(rateLimits, `auth-request-email:${newProfile.normalizedEmail}`, 4);
-            const challengeId = await createAuthChallenge({
-              purpose: "migrate",
-              userId: user.id,
-              username: newProfile.username,
-              normalizedUsername: newProfile.normalizedUsername,
-              email: newProfile.email,
-              normalizedEmail: newProfile.normalizedEmail
-            });
-            sendJson(response, 202, { challengeId, message: "Код отправлен на указанную почту." });
-            return;
+            throw new HttpError(410, "Перенос старых аккаунтов отключён. Создайте новый аккаунт с подтверждением почты.");
           }
 
           if (pathname === "/api/auth/verify") {
@@ -796,40 +744,14 @@ export function createAppServer({
               store.users.push(user);
             } else {
               user = store.users.find((entry) => entry.id === challenge.userId);
-              if (!user || (challenge.purpose !== "login" && challenge.purpose !== "migrate")) {
+              if (!user || challenge.purpose !== "login" ||
+                  user.normalizedEmail !== challenge.normalizedEmail || !user.emailVerifiedAt) {
                 saveStore(dataFile, store);
                 throw new HttpError(401, "Код неверный или истёк. Запросите новый.");
-              }
-              if (challenge.purpose === "login" &&
-                  (user.normalizedEmail !== challenge.normalizedEmail || !user.emailVerifiedAt)) {
-                saveStore(dataFile, store);
-                throw new HttpError(401, "Код неверный или истёк. Запросите новый.");
-              }
-              if (challenge.purpose === "migrate" && !user.passwordHash) {
-                saveStore(dataFile, store);
-                throw new HttpError(401, "Код неверный или истёк. Запросите новый.");
-              }
-              if (challenge.purpose === "migrate") {
-                const usernameInUse = store.users.some((entry) =>
-                  entry.id !== user.id &&
-                  (entry.normalizedUsername ?? entry.username.normalize("NFKC").toLowerCase()) === challenge.normalizedUsername
-                );
-                if (usernameInUse) {
-                  saveStore(dataFile, store);
-                  throw new HttpError(409, "Это имя пользователя уже занято.");
-                }
               }
               user.email = challenge.email;
               user.normalizedEmail = challenge.normalizedEmail;
               user.emailVerifiedAt ??= new Date().toISOString();
-              if (challenge.purpose === "migrate") {
-                user.username = challenge.username;
-                user.normalizedUsername = challenge.normalizedUsername;
-                delete user.passwordSalt;
-                delete user.passwordHash;
-                delete user.passwordKdf;
-                store.authChallenges = store.authChallenges.filter((entry) => entry.userId !== user.id);
-              }
             }
             const token = createSession(store, user);
             sendJson(response, 200, { user: publicUser(user) }, { "Set-Cookie": sessionCookie(token, secureCookies) });

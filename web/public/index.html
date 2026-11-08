@@ -40,16 +40,11 @@
         <div class="auth-tabs" role="tablist" aria-label="Авторизация">
           <button id="login-tab" class="tab-button is-active" type="button" role="tab" aria-selected="true">Вход</button>
           <button id="register-tab" class="tab-button" type="button" role="tab" aria-selected="false">Регистрация</button>
-          <button id="migrate-tab" class="tab-button" type="button" role="tab" aria-selected="false">Старый аккаунт</button>
         </div>
         <form id="auth-form">
           <div id="credentials-fields">
             <label id="username-label" class="field-label" for="username">Имя профиля</label>
             <input id="username" name="username" autocomplete="username" minlength="3" maxlength="24">
-            <label id="password-label" class="field-label" for="password" hidden>Пароль старого аккаунта</label>
-            <input id="password" name="password" type="password" autocomplete="current-password" minlength="1" maxlength="128" hidden>
-            <label id="profile-name-label" class="field-label" for="profile-name" hidden>Новое имя профиля (если нужно)</label>
-            <input id="profile-name" name="profileName" autocomplete="nickname" minlength="3" maxlength="24" hidden>
             <label class="field-label" for="email">Электронная почта</label>
             <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
           </div>
@@ -62,7 +57,7 @@
           <p id="auth-error" class="form-error" role="alert" hidden></p>
           <button id="auth-submit" class="button button-primary button-wide" type="submit">Получить код</button>
         </form>
-        <p class="panel-footnote">Вход защищён одноразовым кодом, который действует 10 минут. Старые аккаунты можно перенести, подтвердив почту.</p>
+        <p class="panel-footnote">Вход защищён одноразовым кодом, который действует 10 минут. Для нового аккаунта подтвердите свою почту.</p>
       </section>
     </section>
 

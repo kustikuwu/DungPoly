@@ -158,7 +158,9 @@ test("the browser lobby page is served with restrictive security headers", async
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-security-policy"), /default-src 'self'/);
   assert.equal(response.headers.get("referrer-policy"), "no-referrer");
-  assert.match(await response.text(), /Создать лобби/);
+  const html = await response.text();
+  assert.match(html, /Создать лобби/);
+  assert.doesNotMatch(html, /Старый аккаунт|Пароль старого аккаунта/);
 });
 
 test("the Pages proxy preserves API path, query, method, and session cookie", async () => {
@@ -600,7 +602,7 @@ test("session cookies are backed by hashed tokens and survive a server restart",
   assert.equal(revokedSession.status, 401);
 });
 
-test("email registration and login verify one-time codes; password routes are disabled", async () => {
+test("email registration and login verify one-time codes; legacy account routes are disabled", async () => {
   const email = registeredEmails.get("Создатель");
   const challenge = await request("/api/auth/login", {
     method: "POST",
@@ -625,6 +627,12 @@ test("email registration and login verify one-time codes; password routes are di
     body: { username: "ЕщеОдин", password: "old-password" }
   });
   assert.equal(passwordRegistration.status, 410);
+
+  const legacyMigration = await request("/api/auth/migrate", {
+    method: "POST",
+    body: { username: "Создатель", password: "old-password", email: "legacy@example.test" }
+  });
+  assert.equal(legacyMigration.status, 410);
 });
 
 test("a one-time code is invalidated after five incorrect attempts", async () => {
@@ -688,66 +696,4 @@ test("registration and lobby names reject profanity, malformed email, and duplic
     body: { name: "Комната Сyки", maxPlayers: 4 }
   });
   assert.equal(bannedRussianRoom.status, 400);
-});
-
-test("an existing password account can migrate to verified email authentication", async () => {
-  const isolatedDirectory = await mkdtemp(join(tmpdir(), "dungpoly-migration-test-"));
-  const storeFile = join(isolatedDirectory, "store.json");
-  const salt = "0123456789abcdef0123456789abcdef";
-  const { scrypt } = await import("node:crypto");
-  const { promisify } = await import("node:util");
-  const hash = Buffer.from(await promisify(scrypt)(
-    "legacy-password",
-    salt,
-    64,
-    { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }
-  )).toString("hex");
-  await writeFile(storeFile, JSON.stringify({
-    users: [{
-      id: "legacy-user",
-      username: "LegacyPlayer",
-      normalizedUsername: "legacyplayer",
-      passwordSalt: salt,
-      passwordHash: hash,
-      createdAt: new Date().toISOString()
-    }],
-    lobbies: [],
-    sessions: []
-  }));
-  const migrationServer = createTestServer(storeFile);
-  await new Promise((resolve) => migrationServer.listen(0, "127.0.0.1", resolve));
-  const migrationUrl = `http://127.0.0.1:${migrationServer.address().port}`;
-  const migrationRequest = async (path, body) => {
-    const response = await fetch(`${migrationUrl}${path}`, {
-      method: "POST",
-      headers: { Origin: migrationUrl, "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    });
-    return { status: response.status, payload: await response.json() };
-  };
-  try {
-    const email = "migrated@example.test";
-    const requested = await migrationRequest("/api/auth/migrate", {
-      username: "LegacyPlayer",
-      password: "legacy-password",
-      profileName: "MigratedPlayer",
-      email
-    });
-    assert.equal(requested.status, 202, JSON.stringify(requested.payload));
-    const verified = await migrationRequest("/api/auth/verify", {
-      challengeId: requested.payload.challengeId,
-      code: emailCodes.get(email)
-    });
-    assert.equal(verified.status, 200, JSON.stringify(verified.payload));
-    assert.equal(verified.payload.user.username, "MigratedPlayer");
-
-    const savedStore = JSON.parse(await readFile(storeFile, "utf8"));
-    assert.equal(savedStore.users[0].emailVerifiedAt !== undefined, true);
-    assert.equal(Object.hasOwn(savedStore.users[0], "passwordHash"), false);
-  } finally {
-    await new Promise((resolve, reject) =>
-      migrationServer.close((error) => error ? reject(error) : resolve())
-    );
-    await rm(isolatedDirectory, { recursive: true, force: true });
-  }
 });

@@ -22,10 +22,6 @@ const credentialsFields = document.querySelector("#credentials-fields");
 const verificationFields = document.querySelector("#verification-fields");
 const verificationMessage = document.querySelector("#verification-message");
 const usernameInput = document.querySelector("#username");
-const passwordInput = document.querySelector("#password");
-const passwordLabel = document.querySelector("#password-label");
-const profileNameInput = document.querySelector("#profile-name");
-const profileNameLabel = document.querySelector("#profile-name-label");
 const emailInput = document.querySelector("#email");
 const verificationCodeInput = document.querySelector("#verification-code");
 const accountBar = document.querySelector("#account-bar");
@@ -80,23 +76,16 @@ function setAuthMode(mode) {
   const isRegister = mode === "register";
   const tabs = [
     ["login", document.querySelector("#login-tab")],
-    ["register", document.querySelector("#register-tab")],
-    ["migrate", document.querySelector("#migrate-tab")]
+    ["register", document.querySelector("#register-tab")]
   ];
   for (const [tabMode, tab] of tabs) {
     const active = tabMode === mode;
     tab.classList.toggle("is-active", active);
     tab.setAttribute("aria-selected", String(active));
   }
-  authTitle.textContent = isLogin ? "Войти в аккаунт" : isRegister ? "Создать аккаунт" : "Перенести старый аккаунт";
+  authTitle.textContent = isLogin ? "Войти в аккаунт" : "Создать аккаунт";
   usernameInput.hidden = isLogin;
-  usernameInput.required = isRegister || mode === "migrate";
-  document.querySelector("#username-label").textContent = mode === "migrate" ? "Имя старого профиля" : "Имя профиля";
-  passwordInput.hidden = mode !== "migrate";
-  passwordLabel.hidden = mode !== "migrate";
-  passwordInput.required = mode === "migrate";
-  profileNameInput.hidden = mode !== "migrate";
-  profileNameLabel.hidden = mode !== "migrate";
+  usernameInput.required = isRegister;
   emailInput.required = true;
   credentialsFields.hidden = false;
   verificationFields.hidden = true;
@@ -267,7 +256,6 @@ async function showLobbies(user) {
 
 document.querySelector("#login-tab").addEventListener("click", () => setAuthMode("login"));
 document.querySelector("#register-tab").addEventListener("click", () => setAuthMode("register"));
-document.querySelector("#migrate-tab").addEventListener("click", () => setAuthMode("migrate"));
 document.querySelector("#back-to-credentials").addEventListener("click", () => {
   pendingChallengeId = null;
   verificationFields.hidden = true;
@@ -297,18 +285,9 @@ authForm.addEventListener("submit", async (event) => {
       pendingChallengeId = null;
       await showLobbies(user);
     } else {
-      const endpoint = authMode === "login"
-        ? "/api/auth/login"
-        : authMode === "register"
-          ? "/api/auth/register"
-          : "/api/auth/migrate";
+      const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
       const body = { email: formData.get("email") };
       if (authMode === "register") body.username = formData.get("username");
-      if (authMode === "migrate") {
-        body.username = formData.get("username");
-        body.password = formData.get("password");
-        body.profileName = formData.get("profileName");
-      }
       const { challengeId, message } = await api(endpoint, {
         method: "POST",
         body: JSON.stringify(body)
