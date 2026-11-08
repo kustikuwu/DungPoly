@@ -31,7 +31,10 @@ void Manager::createGame() {
     for (const auto& p : players) {
         gameData.emplace_back(std::string_view(p->name), p->token);
     }
-    game = std::make_shared<LocalGame>(gameData, *this);
+    game = std::make_shared<LocalGame>(
+            gameData,
+            [this](PlayerRequest request) { return sendRequest(std::move(request)); },
+            [this](const BoardModel& board) { sync(board); });
 }
 
 void Manager::sync(const BoardModel& board) {

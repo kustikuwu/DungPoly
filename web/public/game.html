@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f0f0f">
+  <title>DungPoly — игровая комната</title>
+  <link rel="stylesheet" href="/game.css">
+  <script src="/game.js" defer></script>
+</head>
+<body>
+  <header class="room-header">
+    <div class="room-heading">
+      <h1>DungPoly <span aria-hidden="true">—</span> <span id="room-name">Игровая комната</span></h1>
+      <span id="room-code"></span>
+    </div>
+    <div class="room-controls">
+      <span id="current-user"></span>
+      <button id="start-game" class="native-button native-button-primary" type="button" hidden>Начать игру</button>
+      <a class="native-link" href="/">Комнаты</a>
+      <button id="logout-button" class="native-link" type="button">Выйти</button>
+    </div>
+  </header>
+
+  <div id="connection-status" class="connection-status" role="status">Подключение к комнате…</div>
+
+  <main class="game-layout">
+    <aside class="left-rail" aria-label="Игровая панель">
+      <section class="action-panel" aria-label="Действия игрока">
+        <h2>ДЕЙСТВИЯ</h2>
+        <p id="action-status" class="action-status">Ожидание партии</p>
+        <div id="action-list" class="action-list"></div>
+        <form id="sum-form" class="sum-form" hidden>
+          <label for="sum-value">Введите сумму</label>
+          <input id="sum-value" type="number" min="0" max="1000000000" step="1" required>
+          <button class="native-button native-button-primary" type="submit">Подтвердить</button>
+        </form>
+        <p id="turn-input-hint" class="turn-input-hint"></p>
+      </section>
+      <section class="player-panel" aria-label="Игроки">
+        <h2>ИГРОКИ</h2>
+        <div id="players-list" class="players-list"></div>
+      </section>
+    </aside>
+
+    <section class="board-stage" aria-label="Игровое поле">
+      <div id="turn-banner" class="turn-banner">
+        <span id="turn-token" class="token-badge" aria-hidden="true"></span>
+        <span id="turn-label">Партия ещё не началась</span>
+      </div>
+      <div id="game-board" class="game-board" aria-label="40 клеток игрового поля"></div>
+      <section id="center-dashboard" class="center-dashboard" aria-label="Центр партии">
+        <h2>ЦЕНТР ПАРТИИ</h2>
+        <div class="active-player-row">
+          <span id="active-badge" class="player-badge" aria-hidden="true" hidden></span>
+          <p id="active-player" class="active-player">Ожидаем игроков</p>
+        </div>
+        <p id="active-summary" class="active-summary"></p>
+        <p id="active-status" class="active-status"></p>
+        <div class="last-event">
+          <span>ПОСЛЕДНЕЕ СОБЫТИЕ</span>
+          <p id="last-event">Подключение к игровой комнате</p>
+        </div>
+      </section>
+      <section id="dice-notice" class="dice-notice" aria-live="polite" hidden>
+        <h2 id="dice-title">Результат броска</h2>
+        <span class="dice-face" id="die-one" aria-label="Первый кубик"></span>
+        <span class="dice-face" id="die-two" aria-label="Второй кубик"></span>
+        <p id="dice-result"></p>
+      </section>
+      <div id="trade-controls" class="trade-controls" hidden>
+        <button id="trade-accept" class="native-button native-button-primary" type="button">Участвовать</button>
+        <button id="trade-refuse" class="native-button native-button-danger" type="button">Отказаться</button>
+      </div>
+    </section>
+
+    <aside id="property-card" class="property-card" aria-label="Карточка клетки">
+      <div id="property-color" class="property-color"></div>
+      <h2 id="property-name">Сведения о клетке</h2>
+      <div id="property-price" class="property-price" hidden></div>
+      <div id="property-details" class="property-details">Выберите клетку, чтобы посмотреть её свойства.</div>
+      <h3 id="property-actions-title" hidden>ДЕЙСТВИЯ С ПОЛЕМ</h3>
+      <div id="property-actions" class="property-actions"></div>
+      <p id="property-actions-hint" class="property-actions-hint" hidden>Действия доступны в ваш ход</p>
+    </aside>
+  </main>
+
+  <div id="room-error" class="room-error" role="alert" hidden></div>
+</body>
+</html>

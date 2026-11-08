@@ -288,6 +288,14 @@ void Board::decrNumOfOlayers() {
     numOfAlivePlayers--;
 }
 
+void Board::surrenderPlayer(Token token) {
+    PlayerData& player = getPlayer(token);
+    if (!player.alive) return;
+    player.setLoser();
+    decrNumOfOlayers();
+    makePlayerLoser(token);
+}
+
 bool Board::isFinished() const {
     return (numOfAlivePlayers <= 1) || terminated.load();
 }

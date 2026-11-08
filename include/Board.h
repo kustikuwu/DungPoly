@@ -68,6 +68,7 @@ public:
 
     std::size_t getPlayersNumber() const;
     void decrNumOfOlayers();
+    void surrenderPlayer(Token token);
     bool isFinished() const;
     void terminate();
     int getCurNumOfPlayers() const;

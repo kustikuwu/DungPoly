@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111a24">
+  <title>DungPoly — игровые лобби</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="DungPoly — главная">
+        <span class="brand-mark" aria-hidden="true">D</span>
+        <span>DungPoly</span>
+      </a>
+      <div id="account-bar" class="account-bar" hidden>
+        <span id="current-user" class="current-user"></span>
+        <button id="logout-button" class="button button-quiet" type="button">Выйти</button>
+      </div>
+    </header>
+
+    <section id="auth-view" class="auth-layout">
+      <div class="hero-copy">
+        <p class="eyebrow">ОНЛАЙН-ПАРТИИ</p>
+        <h1>Соберите друзей<br>за одним столом.</h1>
+        <p class="hero-description">Создайте лобби, поделитесь комнатой и подготовьтесь к партии в DungPoly.</p>
+        <div class="hero-stats" aria-label="Вместимость лобби">
+          <span>2–6 игроков</span>
+          <span>Свои комнаты</span>
+        </div>
+      </div>
+
+      <section class="panel auth-panel" aria-labelledby="auth-title">
+        <div class="panel-heading">
+          <p class="eyebrow">ВАШ ИГРОВОЙ ПРОФИЛЬ</p>
+          <h2 id="auth-title">Войти в аккаунт</h2>
+        </div>
+        <div class="auth-tabs" role="tablist" aria-label="Авторизация">
+          <button id="login-tab" class="tab-button is-active" type="button" role="tab" aria-selected="true">Вход</button>
+          <button id="register-tab" class="tab-button" type="button" role="tab" aria-selected="false">Регистрация</button>
+          <button id="migrate-tab" class="tab-button" type="button" role="tab" aria-selected="false">Старый аккаунт</button>
+        </div>
+        <form id="auth-form">
+          <div id="credentials-fields">
+            <label id="username-label" class="field-label" for="username">Имя профиля</label>
+            <input id="username" name="username" autocomplete="username" minlength="3" maxlength="24">
+            <label id="password-label" class="field-label" for="password" hidden>Пароль старого аккаунта</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" minlength="1" maxlength="128" hidden>
+            <label id="profile-name-label" class="field-label" for="profile-name" hidden>Новое имя профиля (если нужно)</label>
+            <input id="profile-name" name="profileName" autocomplete="nickname" minlength="3" maxlength="24" hidden>
+            <label class="field-label" for="email">Электронная почта</label>
+            <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required>
+          </div>
+          <div id="verification-fields" hidden>
+            <p id="verification-message" class="verification-message"></p>
+            <label class="field-label" for="verification-code">Код из письма</label>
+            <input id="verification-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6">
+            <button id="back-to-credentials" class="button button-quiet button-wide" type="button">Изменить данные</button>
+          </div>
+          <p id="auth-error" class="form-error" role="alert" hidden></p>
+          <button id="auth-submit" class="button button-primary button-wide" type="submit">Получить код</button>
+        </form>
+        <p class="panel-footnote">Вход защищён одноразовым кодом, который действует 10 минут. Старые аккаунты можно перенести, подтвердив почту.</p>
+      </section>
+    </section>
+
+    <section id="lobby-view" class="lobby-layout" hidden>
+      <div class="lobby-intro">
+        <div>
+          <p class="eyebrow">КОМНАТЫ DUNGPOLY</p>
+          <h1>Выберите стол.</h1>
+          <p>Создайте своё лобби или присоединитесь к открытой комнате.</p>
+        </div>
+        <button id="refresh-button" class="button button-quiet" type="button">Обновить список</button>
+      </div>
+
+      <div class="lobby-columns">
+        <section class="panel create-panel" aria-labelledby="create-title">
+          <p class="eyebrow">НОВАЯ КОМНАТА</p>
+          <h2 id="create-title">Создать лобби</h2>
+          <form id="create-form">
+            <label class="field-label" for="lobby-name">Название</label>
+            <input id="lobby-name" name="name" placeholder="Например, Вечерняя партия" minlength="3" maxlength="40" required>
+            <label class="field-label" for="max-players">Количество игроков</label>
+            <select id="max-players" name="maxPlayers">
+              <option value="2">2 игрока</option>
+              <option value="3">3 игрока</option>
+              <option value="4" selected>4 игрока</option>
+              <option value="5">5 игроков</option>
+              <option value="6">6 игроков</option>
+            </select>
+            <p id="create-error" class="form-error" role="alert" hidden></p>
+            <button class="button button-primary button-wide" type="submit">Создать комнату</button>
+          </form>
+          <p class="panel-footnote">Вы станете владельцем комнаты. Вместимость можно выбрать от 2 до 6 игроков.</p>
+        </section>
+
+        <section class="rooms-section" aria-labelledby="rooms-title">
+          <div class="rooms-heading">
+            <div>
+              <p class="eyebrow">ОТКРЫТЫЕ КОМНАТЫ</p>
+              <h2 id="rooms-title">Лобби игроков</h2>
+            </div>
+            <span id="lobby-count" class="count-badge">0</span>
+          </div>
+          <div id="rooms-list" class="rooms-list" aria-live="polite"></div>
+          <p id="rooms-empty" class="empty-state" hidden>Пока нет открытых комнат. Создайте первую!</p>
+        </section>
+      </div>
+
+    </section>
+
+    <div id="status-message" class="status-message" role="status" hidden></div>
+    <footer class="site-footer">DungPoly <span aria-hidden="true">·</span> Онлайн-комнаты для оригинальной игры</footer>
+  </main>
+</body>
+</html>

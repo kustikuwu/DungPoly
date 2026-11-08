@@ -259,10 +259,7 @@ PlayerRequest makeDefaultRequest(Token token, Board& board) {
 bool handleGenericActions(Token tok, const FieldTile& tile, PlayerAction action) {
     using namespace Monopoly::Requests;
     if (action == PlayerAction::LOSE) {
-        PlayerData& player = tile.board.getPlayer(tok);
-        player.setLoser();
-        tile.board.makePlayerLoser(player.token);
-        tile.board.decrNumOfOlayers();
+        tile.board.surrenderPlayer(tok);
         tile.board.send(message(tok, MessageType::INFO, "Вы проиграли"));
         //TODO
         return false;
@@ -380,12 +377,8 @@ bool handleGenericActions(Token tok, const FieldTile& tile, PlayerAction action)
         return true;
     }
     if (action == PlayerAction::EXIT_GAME) {
-        tile.board.decrNumOfOlayers();
-        PlayerData& player = tile.board.getPlayer(tok);
-        player.setLoser();
-        tile.board.makePlayerLoser(player.token);
-        tile.board.send(message(tok, MessageType::INFO,
-                                tile.board.isFinished() ? "Вы победили!" : "Вы проиграли"));
+        tile.board.surrenderPlayer(tok);
+        tile.board.send(message(tok, MessageType::INFO, "Вы сдались"));
         return false;
     }
     if (action == PlayerAction::BUY_BACK_PROPERTY) {
@@ -559,13 +552,13 @@ void GoToPrison::onPlayerEntry(Token token) {
     PlayerData& player = board.getPlayer(token);
     RandomSource rng;
     player.toPrison();
-    PlayerRequest request = Monopoly::Requests::action(token, {PlayerAction::END_TURN});
+    PlayerRequest request = Monopoly::Requests::action(token, {PlayerAction::END_TURN, PlayerAction::EXIT_GAME});
     while (true) {
         if (player.prisoner) {
             request->availableActions.push_back(PlayerAction::ROLL_DICE);
         }
         PlayerAction action = board.send(std::move(request))->data.action;
-        request = Monopoly::Requests::action(token, {PlayerAction::END_TURN});
+        request = Monopoly::Requests::action(token, {PlayerAction::END_TURN, PlayerAction::EXIT_GAME});
         if (action == PlayerAction::END_TURN) {
             break;
         }
@@ -581,6 +574,9 @@ void GoToPrison::onPlayerEntry(Token token) {
                         "\nВы не выходите из тюрьмы :(";
             }
             continue;
+        }
+        if (!handleGenericActions(token, *this, action)) {
+            return;
         }
     }
 }

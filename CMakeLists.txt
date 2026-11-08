@@ -26,7 +26,32 @@ add_subdirectory(lib)
 file(GLOB_RECURSE sources "src/*")
 file(GLOB_RECURSE includes "include/*")
 
+set(core_sources
+        src/Board.cpp
+        src/Cards.cpp
+        src/Field.cpp
+        src/LocalGame.cpp
+        src/PlayerRequesrs.cpp
+        src/Random.cpp
+        src/threads/BoardModel.cpp
+)
+foreach(core_source IN LISTS core_sources)
+        list(REMOVE_ITEM sources "${CMAKE_CURRENT_SOURCE_DIR}/${core_source}")
+endforeach()
+list(REMOVE_ITEM sources "${CMAKE_CURRENT_SOURCE_DIR}/src/web/GameEngine.cpp")
+
+add_library(dungpoly_core STATIC ${core_sources})
+target_include_directories(dungpoly_core PUBLIC include lib/sockpp/include)
+target_link_libraries(dungpoly_core PUBLIC Threads::Threads)
+
 add_executable(${PROJECT_NAME} ${sources} ${includes} ${ProtoSources} ${ProtoHeaders})
+target_link_libraries(${PROJECT_NAME} PRIVATE dungpoly_core)
+
+add_executable(DungPolyWebEngine src/web/GameEngine.cpp)
+target_link_libraries(DungPolyWebEngine PRIVATE dungpoly_core)
+set_target_properties(DungPolyWebEngine PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/web-engine/$<CONFIG>"
+)
 
 set (resources "${CMAKE_SOURCE_DIR}/resources")
 set (resources_target "${CMAKE_CURRENT_BINARY_DIR}/resources")
@@ -50,4 +75,4 @@ else()
         set(sockpp_target sockpp)
 endif()
 
-target_link_libraries(${PROJECT_NAME} Threads::Threads sfml-graphics ${PROTOBUF_LIBRARIES} ${sockpp_target})
+target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads sfml-graphics ${PROTOBUF_LIBRARIES} ${sockpp_target})

@@ -1,0 +1,19 @@
+{
+  "name": "dungpoly-web-lobby",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "dotenv": "^18.0.9",
+    "leo-profanity": "^1.9.0",
+    "nodemailer": "^10.4.0",
+    "ws": "^8.18.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
